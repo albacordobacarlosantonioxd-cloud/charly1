@@ -7,7 +7,7 @@ const axios = require('axios');
 const path = require('path');
 const googleTTS = require('google-tts-api');
 
-// --- CONFIGURACIÓN ---
+// --- CONFIGURACIÓN DE LLAVES ---
 const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
 const NUMERO_BOT = process.env.NUMERO_BOT;
@@ -16,11 +16,19 @@ const RAPIDAPI_HOST = 'tiktok-video-no-watermark2.p.rapidapi.com';
 const isWindows = process.platform === "win32";
 const ytDlp = new YTDlpWrap();
 
+// --- CONFIGURACIÓN DE PUPPETEER (EL PARCHE MAESTRO) ---
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu'
+        ],
+        // Si es Windows usa tu ruta, si es Render dejamos que Puppeteer lo busque solo 
+        // tras haberlo instalado con el Build Command corregido.
         executablePath: isWindows 
             ? 'C:\\Users\\IK\\.cache\\puppeteer\\chrome\\win64-145.0.7632.77\\chrome-win64\\chrome.exe' 
             : undefined 
@@ -28,23 +36,30 @@ const client = new Client({
 });
 
 // --- EVENTOS DE CONEXIÓN ---
-client.on('ready', () => console.log('✅ BOT MAESTRO ONLINE'));
-client.on('code', (code) => console.log('🔥 TU CÓDIGO DE VINCULACIÓN ES:', code));
+client.on('ready', () => {
+    console.log('✅ ¡BOT MAESTRO ONLINE! Escribe .menu para empezar.');
+});
 
-// --- LÓGICA DE MENSAJES ---
+client.on('code', (code) => {
+    console.log('------------------------------------');
+    console.log('🔥 TU CÓDIGO DE VINCULACIÓN ES:', code);
+    console.log('------------------------------------');
+});
+
+// --- COMANDOS ---
 client.on('message', async msg => {
     const text = msg.body.toLowerCase();
 
-    // 1. EL MENÚ (.menu)
+    // 1. MENÚ (.menu)
     if (text === '.menu' || text === '.help') {
         const menu = `╭─── *BOT MAESTRO* ───╮
-│ 📌 *.p* - Ping del bot
-│ 🎭 *.s* - Crear Sticker (envía o cita img)
-│ 🤖 *.ai* [texto] - IA modo texto
-│ 🎙️ *.v* [texto] - IA modo nota de voz
-│ 🎵 *.audio* [búsqueda] - YouTube Audio
-│ 🎥 *.video* [búsqueda] - YouTube Video
-│ 📱 *.tt* [búsqueda/link] - TikTok
+│ 📌 *.p* - Ping
+│ 🎭 *.s* - Crear Sticker (img/video)
+│ 🤖 *.ai* [texto] - IA Texto
+│ 🎙️ *.v* [texto] - IA Voz (Nota de voz)
+│ 🎵 *.audio* [búsqueda] - YouTube
+│ 🎥 *.video* [búsqueda] - YouTube
+│ 📱 *.tt* [link/búsqueda] - TikTok
 ╰───────────────────╯`;
         return msg.reply(menu);
     }
@@ -64,9 +79,9 @@ client.on('message', async msg => {
                     stickerAuthor: "Pendejo Bot" 
                 });
             } else {
-                msg.reply('❌ ¡Manda una imagen o cita una, animal!');
+                msg.reply('❌ ¡Cita una imagen o video, animal!');
             }
-        } catch (e) { msg.reply('❌ Error al crear sticker.'); }
+        } catch (e) { msg.reply('❌ No pude hacer esa porquería.'); }
     }
 
     // 4. IA TEXTO (.ai) E IA VOZ (.v)
@@ -77,7 +92,7 @@ client.on('message', async msg => {
             const res = await axios.post('https://api.mistral.ai/v1/chat/completions', {
                 model: 'open-mistral-7b',
                 messages: [
-                    { role: "system", content: "Eres Bot Maestro, grosero y sarcástico." },
+                    { role: "system", content: "Eres Bot Maestro, un bot mexicano grosero y sarcástico." },
                     { role: "user", content: prompt }
                 ]
             }, { headers: { 'Authorization': `Bearer ${MISTRAL_API_KEY}` } });
@@ -90,25 +105,26 @@ client.on('message', async msg => {
                 return await client.sendMessage(msg.from, media, { sendAudioAsVoice: true });
             }
             return msg.reply(`🤖 ${respuesta}`);
-        } catch (e) { return msg.reply('⚠️ IA caída.'); }
+        } catch (e) { return msg.reply('⚠️ La IA se quedó pendeja, intenta luego.'); }
     }
 
     // 5. YOUTUBE (.audio / .video)
     if (text.startsWith('.audio ') || text.startsWith('.video ')) {
         const isVideo = text.startsWith('.video');
         const query = msg.body.split(' ').slice(1).join(' ');
+        if (!query) return msg.reply('❌ ¿Qué quieres bajar?');
+
         const fileName = path.join(__dirname, `temp_${Date.now()}.${isVideo ? 'mp4' : 'mp3'}`);
-        
         try {
-            msg.reply('⏳ Bajando tu mugre, espera...');
+            msg.reply('⏳ Bajando... ten paciencia, no soy flash.');
             let args = [`ytsearch1:${query}`, '-o', fileName];
             isVideo ? args.push('-f', 'best[ext=mp4]') : args.push('-x', '--audio-format', 'mp3');
             
             await ytDlp.execPromise(args);
             const media = MessageMedia.fromFilePath(fileName);
             await client.sendMessage(msg.from, media, { unsafeMime: true });
-            fs.unlinkSync(fileName);
-        } catch (e) { msg.reply('❌ No pude bajar eso de YouTube.'); }
+            if (fs.existsSync(fileName)) fs.unlinkSync(fileName);
+        } catch (e) { msg.reply('❌ Falló YouTube.'); }
     }
 
     // 6. TIKTOK (.tt)
@@ -124,9 +140,19 @@ client.on('message', async msg => {
             const video = response.data.data.videos[0];
             const media = await MessageMedia.fromUrl(video.play, { unsafeMime: true });
             await client.sendMessage(msg.from, media, { caption: video.title });
-        } catch (e) { msg.reply('❌ Error en TikTok.'); }
+        } catch (e) { msg.reply('❌ No hallé nada en TikTok.'); }
     }
 });
 
+// INICIO
 client.initialize();
-setTimeout(async () => { if (!client.info) { try { await client.requestPairingCode(NUMERO_BOT); } catch (e) {} } }, 10000);
+
+// Solicitar código tras 10 seg si no hay sesión activa
+setTimeout(async () => {
+    if (!client.info) {
+        try {
+            console.log('⏳ Solicitando código para:', NUMERO_BOT);
+            await client.requestPairingCode(NUMERO_BOT);
+        } catch (e) { console.log('ℹ️ Esperando conexión...'); }
+    }
+}, 10000);
