@@ -1,0 +1,9 @@
+node_modules/
+.wwebjs_auth/
+.wwebjs_cache/
+*.mp3
+*.mp4
+temp_*
+ffmpeg.exe
+yt-dlp.exe
+.env
